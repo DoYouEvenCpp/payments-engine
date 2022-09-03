@@ -3,8 +3,8 @@ use clap::Parser;
 use std::collections::HashMap;
 
 use crate::{account::Account, record::OperationType, record::Record};
-mod account;
 
+mod account;
 mod record;
 
 #[derive(Parser, Debug)]
@@ -15,7 +15,7 @@ struct Args {
 type Accounts = HashMap<u16, account::Account>;
 type Transactions = HashMap<u32, Record>;
 
-fn main() -> Result<(), anyhow::Error> {
+fn main() -> Result<()> {
     //TODO: removedata duplication between accounts and transactions
     let mut accounts = Accounts::new();
     let mut transactions = Transactions::new();
@@ -34,57 +34,52 @@ fn main() -> Result<(), anyhow::Error> {
         .filter_map(|r| r.ok());
 
     for e in entries {
-        let entry = accounts.entry(e.client).or_insert(Account::new(e.client));
+        let entry = accounts
+            .entry(e.client)
+            .or_insert_with(|| Account::new(e.client));
         if e.amount.is_some() {
             transactions
                 .entry(e.tx)
-                .or_insert(Record::new(e.r#type, e.client, e.tx, e.amount));
+                .or_insert_with(|| Record::new(e.r#type, e.client, e.tx, e.amount));
         }
         match e.r#type {
             record::OperationType::Deposit => {
                 if let Some(amount) = e.amount {
-                    entry.deposit(amount);
+                    entry.deposit(amount)?;
                 }
             }
             record::OperationType::Withdrawal => {
                 if let Some(amount) = e.amount {
-                    entry.withdrawal(amount);
+                    entry.withdrawal(amount)?;
                 }
             }
             OperationType::Chargeback => {
                 if let Some(t) = transactions.get(&e.tx) {
                     if let Some(amount) = t.amount {
-                        entry.charbegack(amount);
+                        entry.charbegack(amount)?;
                     }
                 }
             }
             OperationType::Dispute => {
                 if let Some(t) = transactions.get(&e.tx) {
                     if let Some(amount) = t.amount {
-                        entry.dispute(amount);
+                        entry.dispute(amount)?;
                     }
                 }
             }
             OperationType::Resolve => {
                 if let Some(t) = transactions.get(&e.tx) {
                     if let Some(amount) = t.amount {
-                        entry.resolve(amount);
+                        entry.resolve(amount)?;
                     }
                 }
             }
         }
     }
-    println!();
-
     let mut output_writer = csv::Writer::from_writer(std::io::stdout());
     for (_, acc) in accounts {
         output_writer.serialize(acc)?;
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 }
