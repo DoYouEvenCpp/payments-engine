@@ -1,8 +1,8 @@
+use crate::amount::Amount;
 use serde::Deserialize;
 use std::fmt;
-
 //TODO: fix structs visibility(?)
-#[derive(Copy, Clone, Debug, Deserialize)]
+#[derive(Copy, Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum OperationType {
     Chargeback,
@@ -33,11 +33,11 @@ pub struct Record {
     pub r#type: OperationType,
     pub client: u16,
     pub tx: u32,
-    pub amount: Option<f32>,
+    pub amount: Option<Amount>,
 }
 
 impl Record {
-    pub fn new(r#type: OperationType, client: u16, tx: u32, amount: Option<f32>) -> Self {
+    pub fn new(r#type: OperationType, client: u16, tx: u32, amount: Option<Amount>) -> Self {
         Self {
             r#type,
             client,

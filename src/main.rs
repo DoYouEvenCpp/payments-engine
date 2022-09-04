@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use crate::{account::Account, record::OperationType, record::Record};
 
 mod account;
+mod amount;
 mod record;
 
 #[derive(Parser, Debug)]
@@ -21,7 +22,6 @@ fn main() -> Result<()> {
     let mut transactions = Transactions::new();
 
     let args = Args::parse();
-    // let input = std::fs::File::open(args.csv_path)?;
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(b',')
         .has_headers(true)
@@ -55,8 +55,10 @@ fn main() -> Result<()> {
             }
             OperationType::Chargeback => {
                 if let Some(t) = transactions.get(&e.tx) {
-                    if let Some(amount) = t.amount {
-                        entry.charbegack(amount)?;
+                    if t.r#type == record::OperationType::Dispute {
+                        if let Some(amount) = t.amount {
+                            entry.charbegack(amount)?;
+                        }
                     }
                 }
             }
@@ -69,8 +71,10 @@ fn main() -> Result<()> {
             }
             OperationType::Resolve => {
                 if let Some(t) = transactions.get(&e.tx) {
-                    if let Some(amount) = t.amount {
-                        entry.resolve(amount)?;
+                    if t.r#type == record::OperationType::Dispute {
+                        if let Some(amount) = t.amount {
+                            entry.resolve(amount)?;
+                        }
                     }
                 }
             }

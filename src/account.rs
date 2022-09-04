@@ -1,4 +1,6 @@
+use crate::amount::Amount;
 use anyhow::Result;
+use rust_decimal::Decimal;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 use thiserror::Error;
@@ -9,6 +11,8 @@ pub enum Errors {
     AccountLocked(u16),
     #[error("Not enough {0} funds available!")]
     InsuficientFunds(u16),
+    #[error("Overflow occured in {0}")]
+    FundsOverflow(u16),
 }
 #[derive(Debug, PartialEq, Serialize)]
 enum AccountState {
@@ -27,10 +31,9 @@ impl Default for AccountState {
 #[derive(Debug)]
 pub struct Account {
     // TODO: wrap types into structures
-    // TODO: do i need client_id in Account?
     client_id: u16,
-    available: f32,
-    held: f32,
+    available: Decimal,
+    held: Decimal,
     locked: AccountState,
 }
 
@@ -61,46 +64,66 @@ impl Account {
         }
     }
 
-    pub fn deposit(&mut self, amount: f32) -> Result<(), Errors> {
+    pub fn deposit(&mut self, amount: Amount) -> Result<(), Errors> {
         match self.locked {
             AccountState::Locked => Err(Errors::AccountLocked(self.client_id)),
             AccountState::Unlocked => {
-                self.available += amount;
+                self.available = self
+                    .available
+                    .checked_add(*amount)
+                    .ok_or(Errors::FundsOverflow(self.client_id))?;
                 Ok(())
             }
         }
     }
 
-    pub fn withdrawal(&mut self, amount: f32) -> Result<(), Errors> {
+    pub fn withdrawal(&mut self, amount: Amount) -> Result<(), Errors> {
         match self.locked {
             AccountState::Locked => Err(Errors::AccountLocked(self.client_id)),
             AccountState::Unlocked => {
-                if self.available < amount {
-                    Err(Errors::InsuficientFunds(self.client_id))
-                } else {
-                    self.available -= amount;
+                if self.available >= *amount {
+                    self.available = self.available.checked_sub(*amount).unwrap();
                     Ok(())
+                } else {
+                    Err(Errors::InsuficientFunds(self.client_id))
                 }
             }
         }
     }
 
-    pub fn dispute(&mut self, amount: f32) -> Result<(), Errors> {
-        if self.available - amount >= 0.0 {
-            self.available -= amount;
-            self.held += amount;
+    pub fn dispute(&mut self, amount: Amount) -> Result<(), Errors> {
+        if self.available >= *amount {
+            self.available = self
+                .available
+                .checked_sub(*amount)
+                .ok_or(Errors::InsuficientFunds(self.client_id))?;
+            self.held = self
+                .held
+                .checked_add(*amount)
+                .ok_or(Errors::FundsOverflow(self.client_id))?;
+            Ok(())
+        } else {
+            Err(Errors::InsuficientFunds(self.client_id))
         }
+    }
+
+    pub fn resolve(&mut self, amount: Amount) -> Result<(), Errors> {
+        self.available = self
+            .available
+            .checked_add(*amount)
+            .ok_or(Errors::FundsOverflow(self.client_id))?;
+        self.held = self
+            .held
+            .checked_sub(*amount)
+            .ok_or(Errors::FundsOverflow(self.client_id))?;
         Ok(())
     }
 
-    pub fn resolve(&mut self, amount: f32) -> Result<(), Errors> {
-        self.available += amount;
-        self.held -= amount;
-        Ok(())
-    }
-
-    pub fn charbegack(&mut self, amount: f32) -> Result<(), Errors> {
-        self.held -= amount;
+    pub fn charbegack(&mut self, amount: Amount) -> Result<(), Errors> {
+        self.held = self
+            .held
+            .checked_sub(*amount)
+            .ok_or(Errors::FundsOverflow(self.client_id))?;
         self.locked = AccountState::Locked;
         Ok(())
     }
@@ -109,104 +132,108 @@ impl Account {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_decimal_macros::dec;
 
     #[test]
     fn test_sanity_check_on_new_account() {
         let account = Account::new(1);
-        assert_eq!(account.available, 0.0);
-        assert_eq!(account.held, 0.0);
+        assert_eq!(account.available, dec!(0.0));
+        assert_eq!(account.held, dec!(0.0));
         assert_eq!(account.locked, AccountState::Unlocked);
     }
 
     #[test]
     fn test_deposit_to_acount() {
         let mut account = Account::new(1);
-        assert_eq!(account.available, 0.0);
-        assert!(account.deposit(1.0).is_ok());
-        assert_eq!(account.available, 1.0);
+        assert_eq!(account.available, dec!(0.0));
+        assert!(account.deposit(Amount(dec!(1.0))).is_ok());
+        assert_eq!(account.available, dec!(1.0));
     }
 
     #[test]
-    fn test_withdrawal_from_account_with_sufficient_amounts() {
+    fn test_withdrawal_from_account_with_sufficient_amount() {
         let mut account = Account::new(1);
-        assert!(account.deposit(100.0).is_ok());
-        assert!(account.withdrawal(99.5).is_ok());
-        assert_eq!(account.available, 0.5);
+        assert!(account.deposit(Amount(dec!(100.0))).is_ok());
+        assert!(account.withdrawal(Amount(dec!(99.5))).is_ok());
+        assert_eq!(account.available, dec!(0.5));
     }
 
     #[test]
-    fn test_withdrawal_from_account_with_insufficient_amounts() {
+    fn test_withdrawal_from_account_with_insufficient_amount() {
         let mut account = Account::new(1);
-        assert!(account.deposit(100.0).is_ok());
+        assert!(account.deposit(Amount(dec!(100.0))).is_ok());
         assert!(matches!(
-            account.withdrawal(200.0),
+            account.withdrawal(Amount(dec!(200.0))),
             Err(Errors::InsuficientFunds(1))
         ));
-        assert_eq!(account.available, 100.0);
+        assert_eq!(account.available, dec!(100.0));
     }
 
     #[test]
     fn test_withdrawal_from_account_with_zero_funds() {
         let mut account = Account::new(123);
         assert!(matches!(
-            account.withdrawal(42.0),
+            account.withdrawal(Amount(dec!(42.0))),
             Err(Errors::InsuficientFunds(123))
         ));
-        assert_eq!(account.available, 0.0);
+        assert_eq!(account.available, dec!(0.0));
     }
 
     #[test]
     fn test_dispute_to_account() {
         let mut account = Account::new(1);
-        assert!(account.deposit(100.0).is_ok());
-        assert!(account.dispute(10.0).is_ok());
-        assert_eq!(account.available, 90.0);
-        assert_eq!(account.held, 10.0);
+        assert!(account.deposit(Amount(dec!(100.0))).is_ok());
+        assert!(account.dispute(Amount(dec!(10.0))).is_ok());
+        assert_eq!(account.available, dec!(90.0));
+        assert_eq!(account.held, dec!(10.0));
     }
 
     #[test]
     fn test_dispute_to_account_with_not_enough_funds() {
         let mut account = Account::new(1);
-        assert!(account.dispute(10.0).is_ok());
-        assert_eq!(account.held, 0.0);
+        assert!(matches!(
+            account.dispute(Amount(dec!(10.0))),
+            Err(Errors::InsuficientFunds(1))
+        ));
+        assert_eq!(account.held, dec!(0.0));
     }
 
     #[test]
     fn test_chargeback_locks_account_and_reduces_available_funds() {
         let mut account = Account::new(1);
-        let held_amount = 10.0f32;
+        let held_amount = dec!(10.0);
 
-        assert!(account.deposit(100.0).is_ok());
-        assert!(account.dispute(held_amount).is_ok());
+        assert!(account.deposit(Amount(dec!(100.0))).is_ok());
+        assert!(account.dispute(Amount(held_amount)).is_ok());
 
         assert_eq!(account.held, held_amount);
-        assert_eq!(account.available, 100.0 - held_amount);
+        assert_eq!(account.available, dec!(100.0) - held_amount);
 
-        assert!(account.charbegack(held_amount).is_ok());
+        assert!(account.charbegack(Amount(held_amount)).is_ok());
 
-        assert_eq!(account.available, 100.0 - held_amount);
-        assert_eq!(account.held, 0.0);
+        assert_eq!(account.available, dec!(100.0) - held_amount);
+        assert_eq!(account.held, dec!(0.0));
         assert_eq!(account.locked, AccountState::Locked);
     }
 
     #[test]
     fn test_resolve_frees_held_amount() {
         let mut account = Account::new(1);
-        assert!(account.deposit(10.0).is_ok());
-        assert!(account.dispute(5.0).is_ok());
-        assert!(account.resolve(5.0).is_ok());
-        assert_eq!(account.available, 10.0);
+        assert!(account.deposit(Amount(dec!(10.0))).is_ok());
+        assert!(account.dispute(Amount(dec!(5.0))).is_ok());
+        assert!(account.resolve(Amount(dec!(5.0))).is_ok());
+        assert_eq!(account.available, dec!(10.0));
     }
 
     #[test]
     fn test_deposit_on_locked_account() {
         let mut account = Account::new(1);
-        assert!(account.deposit(10.0).is_ok());
+        assert!(account.deposit(Amount(dec!(10.0))).is_ok());
 
-        assert!(account.charbegack(5.0).is_ok());
+        assert!(account.charbegack(Amount(dec!(5.0))).is_ok());
 
         assert!(matches!(
-            account.deposit(5.0),
+            account.deposit(Amount(dec!(5.0))),
             Err(Errors::AccountLocked(1))
         ));
     }
