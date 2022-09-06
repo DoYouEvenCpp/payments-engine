@@ -30,8 +30,8 @@ impl Default for AccountState {
 
 #[derive(Debug)]
 pub struct Account {
-    // TODO: wrap types into structures
     client_id: u16,
+    //TODO: change decimal to Amount
     available: Decimal,
     held: Decimal,
     locked: AccountState,
@@ -52,8 +52,6 @@ impl Serialize for Account {
     }
 }
 
-// TODO: add error handling
-// TODO: verify overflows/floating arithmetics
 impl Account {
     pub fn new(client_id: u16) -> Self {
         Self {
@@ -82,7 +80,10 @@ impl Account {
             AccountState::Locked => Err(Errors::AccountLocked(self.client_id)),
             AccountState::Unlocked => {
                 if self.available >= *amount {
-                    self.available = self.available.checked_sub(*amount).unwrap();
+                    self.available = self
+                        .available
+                        .checked_sub(*amount)
+                        .ok_or(Errors::FundsOverflow(self.client_id))?;
                     Ok(())
                 } else {
                     Err(Errors::InsuficientFunds(self.client_id))
@@ -119,13 +120,31 @@ impl Account {
         Ok(())
     }
 
-    pub fn charbegack(&mut self, amount: Amount) -> Result<(), Errors> {
+    pub fn chargeback(&mut self, amount: Amount) -> Result<(), Errors> {
         self.held = self
             .held
             .checked_sub(*amount)
             .ok_or(Errors::FundsOverflow(self.client_id))?;
         self.locked = AccountState::Locked;
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn available(&self) -> Decimal {
+        self.available
+    }
+
+    #[cfg(test)]
+    pub fn held(&self) -> Decimal {
+        self.held
+    }
+
+    #[cfg(test)]
+    pub fn is_locked(&self) -> bool {
+        match self.locked {
+            AccountState::Locked => true,
+            AccountState::Unlocked => false,
+        }
     }
 }
 
@@ -209,7 +228,7 @@ mod tests {
         assert_eq!(account.held, held_amount);
         assert_eq!(account.available, dec!(100.0) - held_amount);
 
-        assert!(account.charbegack(Amount(held_amount)).is_ok());
+        assert!(account.chargeback(Amount(held_amount)).is_ok());
 
         assert_eq!(account.available, dec!(100.0) - held_amount);
         assert_eq!(account.held, dec!(0.0));
@@ -230,7 +249,7 @@ mod tests {
         let mut account = Account::new(1);
         assert!(account.deposit(Amount(dec!(10.0))).is_ok());
 
-        assert!(account.charbegack(Amount(dec!(5.0))).is_ok());
+        assert!(account.chargeback(Amount(dec!(5.0))).is_ok());
 
         assert!(matches!(
             account.deposit(Amount(dec!(5.0))),

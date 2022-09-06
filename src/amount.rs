@@ -6,7 +6,7 @@ use std::ops::Deref;
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub struct Amount(pub Decimal);
 
-/// just to ease usage of Amount acros other components
+// just to ease usage of Amount acros other components
 impl Deref for Amount {
     type Target = Decimal;
     fn deref(&self) -> &Self::Target {

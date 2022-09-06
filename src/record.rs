@@ -35,14 +35,3 @@ pub struct Record {
     pub tx: u32,
     pub amount: Option<Amount>,
 }
-
-impl Record {
-    pub fn new(r#type: OperationType, client: u16, tx: u32, amount: Option<Amount>) -> Self {
-        Self {
-            r#type,
-            client,
-            tx,
-            amount,
-        }
-    }
-}
