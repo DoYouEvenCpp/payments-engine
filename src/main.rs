@@ -28,7 +28,9 @@ fn main() -> Result<()> {
         .filter_map(|r| r.ok());
 
     for e in entries {
-        transactions_manager.parse_entry(e)?;
+        if let Err(err) = transactions_manager.parse_entry(e) {
+            eprintln!("{:?}", err);
+        }
     }
     let mut output_writer = csv::Writer::from_writer(std::io::stdout());
     for acc in transactions_manager.accounts() {
