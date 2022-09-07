@@ -3,6 +3,7 @@ use clap::Parser;
 
 mod account;
 mod amount;
+mod error;
 mod record;
 mod transaction_manager;
 
@@ -12,9 +13,6 @@ struct Args {
 }
 
 fn main() -> Result<()> {
-    //TODO: removedata duplication between accounts and transactions
-    let mut transactions_manager = transaction_manager::TransactionManager::new();
-
     let args = Args::parse();
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(b',')
@@ -27,14 +25,17 @@ fn main() -> Result<()> {
         .deserialize::<record::Record>()
         .filter_map(|r| r.ok());
 
+    let mut transactions_manager = transaction_manager::TransactionManager::new();
     for e in entries {
         if let Err(err) = transactions_manager.parse_entry(e) {
-            eprintln!("{:?}", err);
+            eprintln!("Input parsing error: {:?}", err);
         }
     }
     let mut output_writer = csv::Writer::from_writer(std::io::stdout());
     for acc in transactions_manager.accounts() {
-        output_writer.serialize(acc)?;
+        if let Err(err) = output_writer.serialize(acc) {
+            eprintln!("Deserialisation error: {:?}", err);
+        }
     }
 
     Ok(())

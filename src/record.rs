@@ -1,7 +1,6 @@
 use crate::amount::Amount;
 use serde::Deserialize;
-use std::fmt;
-//TODO: fix structs visibility(?)
+
 #[derive(Copy, Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum OperationType {
@@ -10,22 +9,6 @@ pub enum OperationType {
     Deposit,
     Resolve,
     Withdrawal,
-}
-
-impl fmt::Display for OperationType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                OperationType::Chargeback => "Chargeback",
-                OperationType::Dispute => "Dispute",
-                OperationType::Deposit => "Deposit",
-                OperationType::Resolve => "Resolve",
-                OperationType::Withdrawal => "Withdrawal",
-            }
-        )
-    }
 }
 
 #[derive(Debug, Deserialize)]

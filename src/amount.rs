@@ -13,3 +13,9 @@ impl Deref for Amount {
         &self.0
     }
 }
+
+impl From<Decimal> for Amount {
+    fn from(d: Decimal) -> Self {
+        Amount(d)
+    }
+}
