@@ -38,7 +38,7 @@ impl TransactionManager {
         }
     }
 
-    pub fn parse_entry(&mut self, record: Record) -> Result<(), Errors> {
+    pub fn parse_entry(&mut self, record: &Record) -> Result<(), Errors> {
         let account = self
             .accounts
             .entry(record.client)
@@ -49,25 +49,21 @@ impl TransactionManager {
         //then it would get dropped anyway
         match record.r#type {
             OperationType::Deposit => {
-                if self
-                    .transactions
-                    .insert(record.tx, TransactionRecord::new(record.amount))
-                    .is_some()
-                {
+                if self.transactions.contains_key(&record.tx) {
                     return Err(Errors::TransactionIdAlreadyUsed(record.tx));
                 }
+                self.transactions
+                    .insert(record.tx, TransactionRecord::new(record.amount));
                 if let Some(amount) = record.amount {
                     account.deposit(amount)?;
                 }
             }
             OperationType::Withdrawal => {
-                if self
-                    .transactions
-                    .insert(record.tx, TransactionRecord::new(record.amount))
-                    .is_some()
-                {
+                if self.transactions.contains_key(&record.tx) {
                     return Err(Errors::TransactionIdAlreadyUsed(record.tx));
                 }
+                self.transactions
+                    .insert(record.tx, TransactionRecord::new(record.amount));
                 if let Some(amount) = record.amount {
                     account.withdrawal(amount)?;
                 }
@@ -137,7 +133,7 @@ mod tests {
             Record::new(OperationType::Dispute, 1, 100, None),
         ];
 
-        assert!(records.into_iter().all(|r| manager.parse_entry(r).is_ok()));
+        assert!(records.into_iter().all(|r| manager.parse_entry(&r).is_ok()));
 
         assert_eq!(manager.accounts.get(&1).unwrap().available(), dec!(12.5));
         assert_eq!(manager.accounts.get(&1).unwrap().held(), dec!(0.0));
@@ -155,7 +151,7 @@ mod tests {
             Record::new(OperationType::Chargeback, 1, 2, None),
         ];
 
-        assert!(records.into_iter().all(|r| manager.parse_entry(r).is_ok()));
+        assert!(records.into_iter().all(|r| manager.parse_entry(&r).is_ok()));
 
         assert_eq!(manager.accounts.get(&1).unwrap().held(), dec!(0));
         assert_eq!(manager.accounts.get(&1).unwrap().available(), dec!(0));
@@ -172,7 +168,7 @@ mod tests {
             Record::new(OperationType::Chargeback, 1, 2, None), //#2 wasn't under dispute, no effect
         ];
 
-        assert!(records.into_iter().all(|r| manager.parse_entry(r).is_ok()));
+        assert!(records.into_iter().all(|r| manager.parse_entry(&r).is_ok()));
 
         assert_eq!(manager.accounts.get(&1).unwrap().held(), dec!(15.0));
         assert_eq!(manager.accounts.get(&1).unwrap().available(), dec!(120.0));
@@ -192,7 +188,7 @@ mod tests {
             Record::new(OperationType::Chargeback, 1, 2, None),
         ];
 
-        assert!(records.into_iter().all(|r| manager.parse_entry(r).is_ok()));
+        assert!(records.into_iter().all(|r| manager.parse_entry(&r).is_ok()));
 
         assert_eq!(manager.accounts.get(&1).unwrap().held(), dec!(0.0));
         assert!(manager.accounts.get(&1).unwrap().is_locked());
@@ -207,7 +203,7 @@ mod tests {
             Record::new(OperationType::Resolve, 1, 1, None),
         ];
 
-        assert!(records.into_iter().all(|r| manager.parse_entry(r).is_ok()));
+        assert!(records.into_iter().all(|r| manager.parse_entry(&r).is_ok()));
 
         assert_eq!(manager.accounts.get(&1).unwrap().held(), dec!(0.0));
         assert_eq!(manager.accounts.get(&1).unwrap().available(), dec!(1.234));
@@ -221,7 +217,7 @@ mod tests {
             Record::new(OperationType::Chargeback, 1, 1, None),
         ];
 
-        assert!(records.into_iter().all(|r| manager.parse_entry(r).is_ok()));
+        assert!(records.into_iter().all(|r| manager.parse_entry(&r).is_ok()));
 
         assert_eq!(manager.accounts.get(&1).unwrap().held(), dec!(0.0));
         assert!(!manager.accounts.get(&1).unwrap().is_locked());
@@ -239,7 +235,7 @@ mod tests {
             Record::new(OperationType::Resolve, 1, 2, None),
         ];
 
-        assert!(records.into_iter().all(|r| manager.parse_entry(r).is_ok()));
+        assert!(records.into_iter().all(|r| manager.parse_entry(&r).is_ok()));
 
         assert_eq!(manager.accounts.get(&1).unwrap().held(), dec!(0.0));
         assert!(manager.accounts.get(&1).unwrap().is_locked());
@@ -254,7 +250,7 @@ mod tests {
             Record::new(OperationType::Resolve, 1, 2, None),
         ];
 
-        assert!(records.into_iter().all(|r| manager.parse_entry(r).is_ok()));
+        assert!(records.into_iter().all(|r| manager.parse_entry(&r).is_ok()));
 
         assert_eq!(manager.accounts.get(&1).unwrap().available(), dec!(1));
         assert_eq!(manager.accounts.get(&1).unwrap().held(), dec!(0.0));
@@ -268,9 +264,31 @@ mod tests {
             Record::new(OperationType::Chargeback, 1, 3, None),
         ];
 
-        assert!(records.into_iter().all(|r| manager.parse_entry(r).is_ok()));
+        assert!(records.into_iter().all(|r| manager.parse_entry(&r).is_ok()));
 
         assert_eq!(manager.accounts.get(&1).unwrap().available(), dec!(2));
         assert_eq!(manager.accounts.get(&1).unwrap().held(), dec!(0.0));
+    }
+
+    #[test]
+    fn test_transaction_with_the_same_id_shall_be_rejected_and_error_shall_be_reported() {
+        let mut manager = TransactionManager::new();
+        let records: Vec<Record> = vec![
+            Record::new(OperationType::Deposit, 1, 1, Some(dec!(2).into())),
+            Record::new(OperationType::Deposit, 1, 1, Some(dec!(1).into())),
+        ];
+
+        assert!(manager.parse_entry(&records[0]).is_ok());
+        assert!(matches!(
+            manager.parse_entry(&records[1]),
+            Err(Errors::TransactionIdAlreadyUsed(1))
+        ));
+
+        assert_eq!(manager.transactions.len(), 1);
+        let _expected_transaction = TransactionRecord::new(Some(dec!(2).into()));
+        assert!(matches!(
+            manager.transactions.get(&1).unwrap(),
+            _expected_transaction
+        ));
     }
 }

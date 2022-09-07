@@ -27,7 +27,7 @@ fn main() -> Result<()> {
 
     let mut transactions_manager = transaction_manager::TransactionManager::new();
     for e in entries {
-        if let Err(err) = transactions_manager.parse_entry(e) {
+        if let Err(err) = transactions_manager.parse_entry(&e) {
             eprintln!("Input parsing error: {:?}", err);
         }
     }
