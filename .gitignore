@@ -15,5 +15,5 @@ Cargo.lock
 /target
 
 
-
+# file used for manual tests
 out.csv

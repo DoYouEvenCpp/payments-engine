@@ -1,5 +1,4 @@
-use crate::amount::Amount;
-use crate::error::Errors;
+use crate::{amount::Amount, error::Errors};
 use anyhow::Result;
 use rust_decimal::Decimal;
 use serde::ser::SerializeStruct;
