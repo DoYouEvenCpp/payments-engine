@@ -1,5 +1,5 @@
 # Transaction engine
-A simple pet project, that handles specific transactions in a specific way
+A simple, rust based, pet project, that handles specific transactions in a specific way
 
 <br>
 
