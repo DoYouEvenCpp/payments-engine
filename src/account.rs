@@ -4,18 +4,13 @@ use rust_decimal::Decimal;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, Default, PartialEq, Serialize)]
 enum AccountState {
     #[serde(rename = "true")]
     Locked,
     #[serde(rename = "false")]
+    #[default]
     Unlocked,
-}
-
-impl Default for AccountState {
-    fn default() -> Self {
-        AccountState::Unlocked
-    }
 }
 
 #[derive(Debug)]
