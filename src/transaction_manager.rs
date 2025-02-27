@@ -55,24 +55,36 @@ impl TransactionManager {
                 if self.transactions.contains_key(&record.tx) {
                     return Err(Errors::TransactionIdAlreadyUsed(record.tx, record.r#type));
                 }
-                self.transactions.insert(
-                    record.tx,
-                    TransactionRecord::new(record.r#type, record.amount),
-                );
-                if let Some(amount) = record.amount {
-                    self.get_account(record.client).deposit(amount)?;
+                match record.amount {
+                    Some(amount) => {
+                        if amount.is_sign_negative() {
+                            return Err(Errors::NegativeAmount);
+                        }
+                        self.transactions.insert(
+                            record.tx,
+                            TransactionRecord::new(record.r#type, record.amount),
+                        );
+                        self.get_account(record.client).deposit(amount)?;
+                    }
+                    None => return Err(Errors::MissingAmount),
                 }
             }
             OperationType::Withdrawal => {
                 if self.transactions.contains_key(&record.tx) {
                     return Err(Errors::TransactionIdAlreadyUsed(record.tx, record.r#type));
                 }
-                self.transactions.insert(
-                    record.tx,
-                    TransactionRecord::new(record.r#type, record.amount),
-                );
-                if let Some(amount) = record.amount {
-                    self.get_account(record.client).withdrawal(amount)?;
+                match record.amount {
+                    Some(amount) => {
+                        if amount.is_sign_negative() {
+                            return Err(Errors::NegativeAmount);
+                        }
+                        self.transactions.insert(
+                            record.tx,
+                            TransactionRecord::new(record.r#type, record.amount),
+                        );
+                        self.get_account(record.client).withdrawal(amount)?;
+                    }
+                    None => return Err(Errors::MissingAmount),
                 }
             }
             OperationType::Chargeback => {
@@ -105,11 +117,12 @@ impl TransactionManager {
             }
             OperationType::Resolve => {
                 if let Some(transaction) = self.transactions.get_mut(&record.tx) {
-                    if transaction.under_dispute {
-                        transaction.under_dispute = false;
-                        if let Some(amount) = record.amount {
-                            self.get_account(record.client).resolve(amount)?;
-                        }
+                    if !transaction.under_dispute {
+                        return Err(Errors::ResolveOnNonDisputeOperation);
+                    }
+                    transaction.under_dispute = false;
+                    if let Some(amount) = transaction.amount {
+                        self.get_account(record.client).resolve(amount)?;
                     }
                 }
             }
@@ -225,21 +238,23 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_for_operation_that_is_not_under_dispute_shall_have_no_effect() {
+    fn test_resolve_on_non_dispute_transaction_shall_be_ignroed() {
         let mut manager = TransactionManager::new();
         let records = vec![
-            Record::new(OperationType::Deposit, 1, 1, Some(dec!(1.234).into())),
-            Record::new(OperationType::Resolve, 1, 1, None),
+            Record::new(OperationType::Deposit, 1, 1, Some(dec!(1).into())),
+            Record::new(OperationType::Withdrawal, 1, 2, Some(dec!(0.5).into())),
+            Record::new(OperationType::Resolve, 1, 2, None),
         ];
-
-        assert!(records.into_iter().all(|r| manager.parse_entry(&r).is_ok()));
-
-        assert_eq!(manager.accounts.get(&1).unwrap().held(), dec!(0.0));
-        assert_eq!(manager.accounts.get(&1).unwrap().available(), dec!(1.234));
+        assert!(manager.parse_entry(&records[0]).is_ok());
+        assert!(manager.parse_entry(&records[1]).is_ok());
+        assert!(matches!(
+            manager.parse_entry(&records[2]),
+            Err(Errors::ResolveOnNonDisputeOperation)
+        ));
     }
 
     #[test]
-    fn test_resolve_for_operation_that_was_already_chargedbacked_shall_have_no_effect() {
+    fn test_resolve_for_operation_is_not_under_dispute_shall_have_no_effect() {
         let mut manager = TransactionManager::new();
         let records = vec![
             Record::new(OperationType::Deposit, 1, 1, Some(dec!(0.234).into())),
@@ -249,7 +264,16 @@ mod tests {
             Record::new(OperationType::Resolve, 1, 2, None),
         ];
 
-        assert!(records.into_iter().all(|r| manager.parse_entry(&r).is_ok()));
+        assert!(manager.parse_entry(&records[0]).is_ok());
+        assert!(manager.parse_entry(&records[1]).is_ok());
+        assert!(manager.parse_entry(&records[2]).is_ok());
+        assert!(manager.parse_entry(&records[3]).is_ok());
+
+        assert_eq!(manager.accounts.get(&1).unwrap().held(), dec!(0.0));
+        assert!(manager.accounts.get(&1).unwrap().is_locked());
+        assert_eq!(manager.accounts.get(&1).unwrap().available(), dec!(0.234));
+
+        assert!(manager.parse_entry(&records[4]).is_err());
 
         assert_eq!(manager.accounts.get(&1).unwrap().held(), dec!(0.0));
         assert!(manager.accounts.get(&1).unwrap().is_locked());
@@ -345,5 +369,59 @@ mod tests {
         ];
         assert!(records.iter().all(|r| manager.parse_entry(r).is_ok()));
         assert_eq!(manager.accounts.get(&1).unwrap().available(), dec!(10));
+    }
+
+    #[test]
+    fn test_operation_with_negative_amount_shall_be_discared() {
+        let mut manager = TransactionManager::new();
+        let records = vec![
+            Record::new(OperationType::Deposit, 1, 1, Some(dec!(-1).into())),
+            Record::new(OperationType::Withdrawal, 1, 2, Some(dec!(-1).into())),
+        ];
+        assert!(records.iter().all(|r| manager.parse_entry(r).is_err()));
+        assert!(manager.accounts.is_empty());
+        assert!(manager.transactions.is_empty());
+    }
+
+    #[test]
+    fn test_invalid_deposit_or_withdrawal_operation_shall_not_affect_internal_state_of_manager() {
+        let mut manager = TransactionManager::new();
+        let records = vec![
+            Record::new(OperationType::Deposit, 1, 1, Some(dec!(-150).into())),
+            Record::new(OperationType::Withdrawal, 1, 2, Some(dec!(-42).into())),
+            Record::new(OperationType::Deposit, 1, 3, None),
+            Record::new(OperationType::Withdrawal, 1, 4, None),
+        ];
+
+        assert!(manager.accounts.is_empty());
+        assert!(manager.transactions.is_empty());
+
+        assert!(records.iter().all(|r| manager.parse_entry(r).is_err()));
+
+        assert!(manager.accounts.is_empty());
+        assert!(manager.transactions.is_empty());
+    }
+
+    #[test]
+    fn test_with_multiple_disputes_resolve_shall_release_held_amount_only_from_operation_it_references(
+    ) {
+        let mut manager = TransactionManager::new();
+        let records = vec![
+            Record::new(OperationType::Deposit, 1, 1, Some(dec!(10).into())),
+            Record::new(OperationType::Deposit, 1, 2, Some(dec!(20).into())),
+            Record::new(OperationType::Deposit, 1, 3, Some(dec!(30).into())),
+            Record::new(OperationType::Deposit, 1, 4, Some(dec!(40).into())),
+            Record::new(OperationType::Dispute, 1, 1, None),
+            Record::new(OperationType::Dispute, 1, 2, None),
+            Record::new(OperationType::Resolve, 1, 2, None),
+            Record::new(OperationType::Dispute, 1, 3, None),
+        ];
+
+        records.iter().for_each(|r| {
+            let _ = manager.parse_entry(r);
+        });
+
+        assert_eq!(manager.accounts.get(&1).unwrap().available(), dec!(60));
+        assert_eq!(manager.accounts.get(&1).unwrap().held(), dec!(40));
     }
 }
