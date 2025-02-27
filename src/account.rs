@@ -112,6 +112,19 @@ impl Account {
             .held
             .checked_sub(*amount)
             .ok_or(Errors::FundsOverflow(self.client_id))?;
+        self.lock()?;
+        Ok(())
+    }
+
+    pub fn chargeback_withdrawal(&mut self, amount: Amount) -> Result<(), Errors> {
+        self.available = self
+            .available
+            .checked_add(*amount)
+            .ok_or(Errors::FundsOverflow(self.client_id))?;
+        Ok(())
+    }
+
+    fn lock(&mut self) -> Result<(), Errors> {
         self.locked = AccountState::Locked;
         Ok(())
     }
@@ -157,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn test_withdrawal_from_account_with_sufficient_amount() {
+    fn test_withdrawal_from_account_with_sufficient_balance() {
         let mut account = Account::new(1);
         assert!(account.deposit(dec!(100.0).into()).is_ok());
         assert!(account.withdrawal(dec!(99.5).into()).is_ok());
@@ -165,7 +178,7 @@ mod tests {
     }
 
     #[test]
-    fn test_withdrawal_from_account_with_insufficient_amount() {
+    fn test_withdrawal_from_account_with_insufficient_balance() {
         let mut account = Account::new(1);
         assert!(account.deposit(dec!(100.0).into()).is_ok());
         assert!(matches!(
@@ -205,6 +218,16 @@ mod tests {
     }
 
     #[test]
+    fn test_dispute_to_account_with_zero_balance() {
+        let client_id = 42u16;
+        let mut account = Account::new(client_id);
+        assert!(matches!(
+            account.dispute(dec!(1.23).into()),
+            Err(Errors::InsuficientFunds(_client_id))
+        ));
+    }
+
+    #[test]
     fn test_chargeback_locks_account_and_reduces_available_funds() {
         let mut account = Account::new(1);
         let held_amount = dec!(10.0);
@@ -223,11 +246,20 @@ mod tests {
     }
 
     #[test]
+    fn test_chargeback_for_withdrawal_operation_increases_available_funds() {
+        let mut account = Account::new(1);
+        assert!(account.deposit(dec!(4.2).into()).is_ok());
+        assert!(account.chargeback_withdrawal(dec!(0.8).into()).is_ok());
+        assert_eq!(account.available, dec!(5));
+    }
+
+    #[test]
     fn test_resolve_frees_held_amount() {
         let mut account = Account::new(1);
         assert!(account.deposit(dec!(10.0).into()).is_ok());
-        assert!(account.dispute(dec!(5.0).into()).is_ok());
-        assert!(account.resolve(dec!(5.0).into()).is_ok());
+        assert!(account.dispute(dec!(5.5).into()).is_ok());
+        assert_eq!(account.available, dec!(4.5));
+        assert!(account.resolve(dec!(5.5).into()).is_ok());
         assert_eq!(account.available, dec!(10.0));
     }
 
@@ -246,11 +278,10 @@ mod tests {
     #[test]
     fn test_deposit_fails_due_overflow() {
         let mut account = Account::new(1);
-        account.held = Decimal::MAX;
         account.available = Decimal::MAX;
 
         assert!(matches!(
-            account.deposit(Decimal::MAX.into()),
+            account.deposit(dec!(1).into()),
             Err(Errors::FundsOverflow(1))
         ));
     }
@@ -258,7 +289,6 @@ mod tests {
     #[test]
     fn test_withdrawal_fails_due_overflow() {
         let mut account = Account::new(1);
-        account.held = Decimal::MAX;
         account.available = Decimal::MAX;
 
         assert!(matches!(

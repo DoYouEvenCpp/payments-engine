@@ -11,6 +11,21 @@ pub enum OperationType {
     Withdrawal,
 }
 
+impl std::fmt::Display for OperationType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(
+            f,
+            "{}",
+            match self {
+                OperationType::Chargeback => "Chargeback",
+                OperationType::Dispute => "Dispute",
+                OperationType::Deposit => "Deposit",
+                OperationType::Resolve => "Resolve",
+                OperationType::Withdrawal => "Withdrawal",
+            }
+        )
+    }
+}
 #[derive(Debug, Deserialize)]
 pub struct Record {
     pub r#type: OperationType,
