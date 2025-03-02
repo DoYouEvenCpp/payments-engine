@@ -1,5 +1,5 @@
 # Transaction engine
-A simple, rust based, pet project, that handles specific transactions in a specific way
+A simple, rust based pet project, that handles specific transactions in a specific way
 
 <br>
 
@@ -7,10 +7,11 @@ A simple, rust based, pet project, that handles specific transactions in a speci
 There're a few assumptions that were coined while developing this application:
 - locked account affects its state quite significantly, namely: `deposit` or `withdrawal` operations on locked accounts are not permitted. Each results in an `Errors::AccountLocked` error
 - `withdrawal` operation on an account that contains an insufficient amount of funds, will effect in an `Errors::Insufficient` error
-- each financial operation is tested against overflow, if such is to happen then an `Errors::FundsOverflow` error is created
+- each financial operation is tested against overflow, if such happens then an `Errors::FundsOverflow` error is created
 - `dispute` requires sufficient funds to be available in the account, if not an `Errors::Insufficient` error is raised
 - `chargeback`, `dispute`, and `resolve` are account state (i.e. locked/unlocked) agnostic
 - every disputed operation might be resolved/chargedbacked only once
+- `chargeback` on `withdrawal` simply brings back funds to the overal available sum, while requestes on `deposit` it reduces held amount *and* locks account
 - funds (i.e. floating points) in the output are kept with 4 digits of precission for the decimal point
 
 <br>
@@ -22,6 +23,12 @@ cargo build     # builds application
 cargo run       # runs application
 cargo test      # runs tests
 ```
+
+## Documentation
+
+There's `cargo doc` generated documentation avialable under `/doc` directory.
+
+
 
 ## Running
 Application takes only one obligatory parameter, `CSV` file path, e.g.:
@@ -59,12 +66,12 @@ There's a bunch of tests in two modules (`src/account.rs`, and `src/transaction_
 
 ### Further steps
 Some brief ideas, that _might_ be a good starting point for a list od `TODOs`:
-- provide actual documentation within the code, test it
 - run fuzz tests over the implementation just to verify whether the application doesn't crash with unexpected input
 - export utility structures (e.g. AccountState, CLI's Args) into a separate module(s)
 - the main method returns also `Ok` result - it might be a good idea to start propagating errors to the top of the application (currently, all of the errors are just printed to `stderr`)
-- measure, and investigate whether usage of async would be a performance booster: the application has been tested with gigabytes sized (~2GBs) files, results were not terrible, but also not great
+- measure, and investigate whether usage of async would be a performance booster: the application has been tested with gigabytes sized (~2GBs) input, results were not terrible, but also not great
 - provide an overall design overview
+- consider redesigning the solution to leverage event-sourcing mechanism: tracking _events_ done over an account with such approach seems as a good idea
 
 ### Known issues
 Whenever you see a plausible issue that might increase the technical debt, feel free to point it here, so it just won't get forgotten.
