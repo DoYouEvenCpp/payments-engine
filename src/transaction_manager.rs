@@ -1,19 +1,36 @@
 use crate::{
     account::Account, amount::Amount, error::Errors, record::OperationType, record::Record,
 };
+use anyhow::Result;
 use std::collections::HashMap;
 
-use anyhow::Result;
-
+/// Holds details for a single transaction.
+///
+/// This record tracks the type of operation (deposit, withdrawal, etc.),
+/// the associated amount (if any), and flags to correctly handle dispute-related logic.
 #[derive(Debug)]
 struct TransactionRecord {
+    /// The type of the operation.
     operation_type: OperationType,
+    /// The amount involved in the transaction (if applicable).
     amount: Option<Amount>,
+    /// Flag indicating if the transaction is currently under dispute.
     under_dispute: bool,
+    /// Flag indicating if the transaction has already been disputed.
     already_disputed: bool,
 }
 
 impl TransactionRecord {
+    /// Constructs a new `TransactionRecord`.
+    ///
+    /// # Arguments
+    ///
+    /// * `operation_type` - The type of operation for the transaction.
+    /// * `amount` - Optional amount.
+    ///
+    /// # Returns
+    ///
+    /// A new `TransactionRecord` with dispute flags set to false.
     fn new(operation_type: OperationType, amount: Option<Amount>) -> Self {
         Self {
             operation_type,
@@ -24,9 +41,15 @@ impl TransactionRecord {
     }
 }
 
+/// Type alias for mapping client IDs to their respective accounts.
 type Accounts = HashMap<u16, Account>;
+/// Type alias for mapping transaction IDs to their corresponding records.
 type Transactions = HashMap<u32, TransactionRecord>;
 
+/// Provides business logic for this toy payments-engine. Controls overal flow over different types of transactions.
+///
+/// Internally contains only two collections: accounts and transactions.
+/// Provides implementation to properly handle different type of operations.
 #[derive(Debug)]
 pub struct TransactionManager {
     accounts: Accounts,
@@ -34,6 +57,7 @@ pub struct TransactionManager {
 }
 
 impl TransactionManager {
+    /// Creates a new `TransactionManager` instance with empty account and transaction records.
     pub fn new() -> Self {
         Self {
             accounts: Accounts::new(),
@@ -41,16 +65,52 @@ impl TransactionManager {
         }
     }
 
+    /// Helper method to get a handler to an account (creating one if needed at first).
+    ///
+    /// # Arguments
+    ///
+    /// * `cliend_id` - The unique identifier of the client.
+    ///
+    /// # Returns
+    ///
+    /// A mutable reference to the client's `Account`.
     fn get_account(&mut self, cliend_id: u16) -> &mut Account {
         self.accounts
             .entry(cliend_id)
             .or_insert_with(|| Account::new(cliend_id))
     }
 
+    /// Parses a transaction record and updates the internal state accordingly - the very core of the TransactionManager.
+    ///
+    /// The function handles different operation types:
+    ///
+    /// - **Deposit/Withdrawal:** Validates the record, ensures the transaction ID is unique,
+    ///   inserts the record, and updates the account balance.
+    /// - **Dispute:** Flags a transaction as disputed and adjusts account funds if applicable.
+    /// - **Resolve:** Reverses a dispute, moving held funds back to available funds.
+    /// - **Chargeback:** Finalizes a dispute by removing held funds and locking the account.
+    ///
+    /// There is a few assumptions:
+    /// - transaction id must be unique, otherwise an error is reported
+    /// - if the transaction provided to Deposit or Withdrawal operation is negative, then an error is reported
+    /// - if there is no amount provided to Deposit or Withdrawal operation, then an error is reported
+    /// - Resolve operation must be referenced to a dispute call, otherwise an error is reported
+    /// - Chargeback operations run only over already disputed amounts (eg. there must be a precedeing Dispute operation)
+    /// - Chargeback operation logic differs for referenced Deposit or Withdrawal operations
+    /// - A single operation could be disputed only once, next are silently ignored
+    ///
+    ///
+    /// # Arguments
+    ///
+    /// * `record` - A reference to the incoming transaction `Record`.
+    ///
+    /// # Errors
+    ///
+    /// See assumptions.
+    ///
     pub fn parse_entry(&mut self, record: &Record) -> Result<(), Errors> {
-        //keep track only of transactions that are of type deposit or withdrawal
-        //if there's a dispute/resolve/chargeback that reffers to a non-existing operation
-        //then it gets dropped anyway
+        // Keep track only of transactions that are deposits or withdrawals.
+        // Dispute/resolve/chargeback entries for non-existing operations are dropped.
         match record.r#type {
             OperationType::Deposit => {
                 if self.transactions.contains_key(&record.tx) {
@@ -130,6 +190,9 @@ impl TransactionManager {
         }
         Ok(())
     }
+
+    /// Convience method, that returns iterator over accounts.
+    ///
     pub fn accounts(&self) -> impl Iterator<Item = &Account> {
         self.accounts.values()
     }
@@ -141,8 +204,16 @@ mod tests {
     use crate::amount::Amount;
     use rust_decimal_macros::dec;
 
-    //either allow(dead_code) or keep it in here
+    /// Helper implementation for tests to create new transaction records.
     impl Record {
+        /// Creates a new `Record` instance.
+        ///
+        /// # Arguments
+        ///
+        /// * `r#type` - The type of operation.
+        /// * `client` - The client identifier.
+        /// * `tx` - The transaction identifier.
+        /// * `amount` - The amount involved (if any).
         pub fn new(r#type: OperationType, client: u16, tx: u32, amount: Option<Amount>) -> Self {
             Self {
                 r#type,
@@ -152,6 +223,9 @@ mod tests {
             }
         }
     }
+
+    // The following tests cover various scenarios including disputes, chargebacks,
+    // resolving disputes, duplicate transaction IDs, and handling negative amounts.
 
     #[test]
     fn test_dispute_on_non_existing_transaction_has_no_effets() {
@@ -192,8 +266,8 @@ mod tests {
             Record::new(OperationType::Deposit, 1, 1, Some(dec!(100.0).into())),
             Record::new(OperationType::Deposit, 1, 2, Some(dec!(20.0).into())),
             Record::new(OperationType::Deposit, 1, 3, Some(dec!(15.0).into())),
-            Record::new(OperationType::Dispute, 1, 3, None), //blocks 15.0, available 120
-            Record::new(OperationType::Chargeback, 1, 2, None), //#2 wasn't under dispute, no effect
+            Record::new(OperationType::Dispute, 1, 3, None), // Blocks 15.0, available becomes 120
+            Record::new(OperationType::Chargeback, 1, 2, None), // Transaction #2 wasn't under dispute
         ];
 
         assert!(records.into_iter().all(|r| manager.parse_entry(&r).is_ok()));
