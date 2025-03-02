@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["main"],"mod":["account","amount","error","record","transaction_manager"],"struct":["Args"]};
