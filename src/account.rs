@@ -211,6 +211,11 @@ impl Account {
         Ok(())
     }
 
+    /// Convienet method to get client's ID
+    pub fn get_client_id(&self) -> u16 {
+        self.client_id
+    }
+
     // to ease the testing
 
     /// Returns the current available funds.
