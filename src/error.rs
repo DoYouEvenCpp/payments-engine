@@ -14,8 +14,8 @@ pub enum Errors {
     MissingAmount,
     #[error("Negative amount")]
     NegativeAmount,
-    #[error("Transaction ID {0} already taken in operation {1}")]
-    TransactionIdAlreadyUsed(u32, OperationType),
     #[error("Resolve requested to a non dispute operation")]
     ResolveOnNonDisputeOperation,
+    #[error("Transaction ID {0} already taken in operation {1}")]
+    TransactionIdAlreadyUsed(u32, OperationType),
 }

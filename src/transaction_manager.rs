@@ -27,6 +27,7 @@ impl TransactionRecord {
 type Accounts = HashMap<u16, Account>;
 type Transactions = HashMap<u32, TransactionRecord>;
 
+#[derive(Debug)]
 pub struct TransactionManager {
     accounts: Accounts,
     transactions: Transactions,
@@ -403,7 +404,7 @@ mod tests {
     }
 
     #[test]
-    fn test_with_multiple_disputes_resolve_shall_release_held_amount_only_from_operation_it_references(
+    fn test_with_multiple_disputes_resolve_shall_release_held_amount_only_from_referenced_operation(
     ) {
         let mut manager = TransactionManager::new();
         let records = vec![
@@ -423,5 +424,46 @@ mod tests {
 
         assert_eq!(manager.accounts.get(&1).unwrap().available(), dec!(60));
         assert_eq!(manager.accounts.get(&1).unwrap().held(), dec!(40));
+    }
+
+    #[test]
+    fn test_with_multiple_clients() {
+        let mut manager = TransactionManager::new();
+        let records = vec![
+            Record::new(OperationType::Deposit, 1, 1, Some(dec!(10).into())),
+            Record::new(OperationType::Deposit, 2, 2, Some(dec!(20).into())),
+            Record::new(OperationType::Deposit, 3, 3, Some(dec!(30).into())),
+            Record::new(OperationType::Deposit, 2, 4, Some(dec!(40).into())),
+            Record::new(OperationType::Deposit, 3, 5, Some(dec!(50).into())),
+            Record::new(OperationType::Deposit, 1, 6, Some(dec!(60).into())),
+            Record::new(OperationType::Deposit, 2, 7, Some(dec!(70).into())),
+            Record::new(OperationType::Deposit, 3, 8, Some(dec!(80).into())),
+            Record::new(OperationType::Dispute, 2, 4, None),
+            Record::new(OperationType::Withdrawal, 1, 9, Some(dec!(1).into())),
+            Record::new(OperationType::Dispute, 3, 8, None),
+            Record::new(OperationType::Chargeback, 3, 8, None),
+        ];
+
+        records.iter().for_each(|r| {
+            assert!(manager.parse_entry(r).is_ok());
+        });
+
+        assert_eq!(manager.accounts.len(), 3);
+
+        let account_1 = manager.accounts.get(&1).unwrap();
+        let account_2 = manager.accounts.get(&2).unwrap();
+        let account_3 = manager.accounts.get(&3).unwrap();
+
+        assert_eq!(account_1.is_locked(), false);
+        assert_eq!(account_1.available(), dec!(69));
+        assert_eq!(account_1.held(), dec!(0));
+
+        assert_eq!(account_2.is_locked(), false);
+        assert_eq!(account_2.available(), dec!(90));
+        assert_eq!(account_2.held(), dec!(40));
+
+        assert_eq!(account_3.is_locked(), true);
+        assert_eq!(account_3.available(), dec!(80));
+        assert_eq!(account_3.held(), dec!(0));
     }
 }
