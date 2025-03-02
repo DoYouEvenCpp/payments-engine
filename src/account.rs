@@ -4,15 +4,29 @@ use rust_decimal::Decimal;
 use serde::ser::SerializeStruct;
 use serde::{Serialize, Serializer};
 
+/// Represents the state of an account.
+///
+/// The account can either be:
+/// - `Locked`: Deposit or withdrawal are not possible
+/// - `Unlocked`: Transactions (deposits, withdrawals, etc.) can be processed.
 #[derive(Debug, Default, PartialEq, Serialize)]
 enum AccountState {
+    /// Indicates that the account is locked.
     #[serde(rename = "true")]
     Locked,
+    /// Indicates that the account is unlocked.
     #[serde(rename = "false")]
     #[default]
     Unlocked,
 }
 
+/// A financial account that tracks funds collected by a client.
+///
+/// The account maintains the following:
+/// - `client_id`: Unique identifier for the client.
+/// - `available`: Funds available for use.
+/// - `held`: Funds that are under dispute or reserved.
+/// - `locked`: State of the account (locked/unlocked).
 #[derive(Debug)]
 pub struct Account {
     client_id: u16,
@@ -21,6 +35,16 @@ pub struct Account {
     locked: AccountState,
 }
 
+/// Implementation for serializing an Account, required for payment engine result storing.
+///
+/// Contains minimal logic, all the business logic is driven by [crate::transaction_manager::TransactionManager].
+///
+/// The serialized structure includes:
+/// - `client`: Client identifier.
+/// - `available`: Available funds formatted to 4 decimal places.
+/// - `held`: Held funds formatted to 4 decimal places.
+/// - `total`: Sum of available and held funds formatted to 4 decimal places.
+/// - `locked`: The account state, serialized as "true" for locked and "false" for unlocked.
 impl Serialize for Account {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -40,6 +64,13 @@ impl Serialize for Account {
 }
 
 impl Account {
+    /// Creates a new account for the given client.
+    ///
+    /// A new account is always created with an unique client_id and zero funds (both available and held) and unolocked state.
+    ///
+    /// # Arguments
+    ///
+    /// * `client_id` - Unique identifier for the client.
     pub fn new(client_id: u16) -> Self {
         Self {
             client_id,
@@ -49,6 +80,14 @@ impl Account {
         }
     }
 
+    /// Deposits an amount into the account.
+    ///
+    /// Increases the available funds by the specified amount if the account is unlocked.
+    /// Returns an error if the account is locked or if the operation causes a funds overflow.
+    ///
+    /// # Arguments
+    ///
+    /// * `amount` - The amount to deposit.
     pub fn deposit(&mut self, amount: Amount) -> Result<(), Errors> {
         match self.locked {
             AccountState::Locked => Err(Errors::AccountLocked(self.client_id)),
@@ -62,6 +101,15 @@ impl Account {
         }
     }
 
+    /// Withdraws an amount from the account.
+    ///
+    /// Decreases the available funds by the specified amount if sufficient funds exist
+    /// and the account is unlocked. An error is returned if the account is locked,
+    /// if there are insufficient funds, or if the operation causes an overflow.
+    ///
+    /// # Arguments
+    ///
+    /// * `amount` - The amount to withdraw.
     pub fn withdrawal(&mut self, amount: Amount) -> Result<(), Errors> {
         match self.locked {
             AccountState::Locked => Err(Errors::AccountLocked(self.client_id)),
@@ -79,6 +127,14 @@ impl Account {
         }
     }
 
+    /// Handles a dispute on an amount.
+    ///
+    /// Blocks the disputed amount from available funds if enough available exist.
+    /// Returns an error if there are insufficient funds to cover the dispute.
+    ///
+    /// # Arguments
+    ///
+    /// * `amount` - The amount to dispute.
     pub fn dispute(&mut self, amount: Amount) -> Result<(), Errors> {
         if self.available >= *amount {
             self.available = self
@@ -95,6 +151,14 @@ impl Account {
         }
     }
 
+    /// Resolves a dispute by moving held funds back to available funds.
+    ///
+    /// Increases the available funds and decreases the held funds by the disputed amount.
+    /// Returns an error if the operation causes a funds overflow.
+    ///
+    /// # Arguments
+    ///
+    /// * `amount` - The amount to resolve.
     pub fn resolve(&mut self, amount: Amount) -> Result<(), Errors> {
         self.available = self
             .available
@@ -107,6 +171,16 @@ impl Account {
         Ok(())
     }
 
+    /// Processes a chargeback on a disputed amount.
+    ///
+    /// Removes the disputed amount from held funds and locks the account.
+    /// Returns an error if the operation causes a funds overflow.
+    ///
+    /// Lock operation, as the effect of the chargeback, is done only when disputed amount doesn't trigger overflow error to be reprorted.
+    ///
+    /// # Arguments
+    ///
+    /// * `amount` - The amount for the chargeback.
     pub fn chargeback(&mut self, amount: Amount) -> Result<(), Errors> {
         self.held = self
             .held
@@ -116,6 +190,13 @@ impl Account {
         Ok(())
     }
 
+    /// Adjusts the account for a chargeback on a withdrawal operation.
+    ///
+    /// Chargeback on withdrawal modifies only available funds, and doesn't lock account once performed.
+    ///
+    /// # Arguments
+    ///
+    /// * `amount` - The amount to add back to the available funds.
     pub fn chargeback_withdrawal(&mut self, amount: Amount) -> Result<(), Errors> {
         self.available = self
             .available
@@ -124,21 +205,27 @@ impl Account {
         Ok(())
     }
 
+    /// Locks the account.
     fn lock(&mut self) -> Result<(), Errors> {
         self.locked = AccountState::Locked;
         Ok(())
     }
 
+    // to ease the testing
+
+    /// Returns the current available funds.
     #[cfg(test)]
     pub fn available(&self) -> Decimal {
         self.available
     }
 
+    /// Returns the current held funds.
     #[cfg(test)]
     pub fn held(&self) -> Decimal {
         self.held
     }
 
+    /// Indicates whether the account is locked.
     #[cfg(test)]
     pub fn is_locked(&self) -> bool {
         match self.locked {
