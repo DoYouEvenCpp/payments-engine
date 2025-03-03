@@ -36,6 +36,20 @@ Application takes only one obligatory parameter, `CSV` file path, e.g.:
 cargo run -- path/to/my/csv/file.csv
 ```
 
+Application is provided with a set of sample input data, to use it run following command:
+```
+cargo run in.csv
+```
+
+Expected output should be:
+
+```
+client,available,held,total,locked
+3,80.0000,0.0000,80.0000,true
+2,90.0000,40.0000,130.0000,false
+1,69.0000,0.0000,69.0000,false
+```
+
 <br>
 
 ## Input
